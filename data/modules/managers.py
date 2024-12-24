@@ -35,29 +35,37 @@ class CommunicationManager:
         return flags
 
     #-------------------------------
-
-    def printSubcommandNotPassedAndExit(self):
-        self.printErrorAndExit("A subcommand has not been passed. To check the list of available subcommands for the command entered, run 'help'.")
     
     def printInvalidSubcommandAndExit(self):
-        self.printErrorAndExit("Invalid subcommand. To check the list of available subcommands for the command entered, run 'help'.")
+        self.printErrorAndExit("A subcommand was not passed as expected. To check the list of available subcommands for the command entered, run 'help'.")
+    
+    def printInvalidFlagsAndExit(self):
+        self.printErrorAndExit("Flags were not passed as expected. To check the list of suitable flags for the command entered, run 'help'")
+    
+    #-------------------------------
     
     def printAndGetAccessToken(self):
         return self.printAndGetInput("Enter your GitHub access token: ")
     
-    
-    def handleRequestErrors(self, func):
-        def wrapper(*args, **kwargs): 
-            try:
-                return func(*args, **kwargs)
-            except requests.exceptions.ConnectionError:
-                self.printErrorAndExit("There was a problem establishing a connection with the GitHub API. This may happen due to a network or server-side issue.}")
-            except requests.exceptions.HTTPError as http_error:
-                self.printErrorAndExit(f"HTTP request was not successful - {http_error}")
-        
-        return wrapper 
-
     #-------------------------------
+    
+    def handleCommonExceptions(self, method, method_name, handle_network_exc = False):
+        def wrapper(*args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except Exception as exception:
+                exception_type = type(exception)
+                   
+                if handle_network_exc == True:
+                    if exception_type == requests.HTTPError:
+                        self.printErrorAndExit(f"HTTP request was not successfull:\n {exception}")
+                    if exception_type == requests.ConnectionError:
+                        self.printErrorAndExit(f"There was a problem establishing a connection with the GitHub API. This may happen due to a network problem or server-side issue:\n {exception}")
+                    
+                self.printErrorAndExit(f"An unexpected error occured: {exception}")
+
+        return wrapper
+
     #-------------------------------
 
     def __getArguments(self):
@@ -106,6 +114,36 @@ class RequestsManager:
 
         return repository_ids 
 
+    def fetchUsername(self, token):
+        response = self.makeRequest("get", "/user", token)
+        response.raise_for_status()
+        user_info = response.json()
+        return user_info.get("login")
+    
+    def fetchRepositoryNames(self, token, requested_names = None):
+        repository_names = list()
+
+        response = self.makeRequest("get", "/user/repos", token)
+        response.raise_for_status()
+        repository_info = response.json()
+
+        if type(repository_info) == dict:
+            repository_info = list().append(repository_info)
+
+        if requested_names == None:
+            for repository in repository_info:
+                repository_name = repository.get("name")
+                repository_names.append(repository_name)
+        else:
+            for repository in repository_info:
+                repository_name = repository.get("name")
+
+                for requested_name in requested_names:
+                    if repository_name == requested_name:
+                        repository_names.append(repository_name)
+        
+        return repository_names
+                
 class DataManager:
 
     paths = {
@@ -153,4 +191,43 @@ class ParseManager:
 
     def jsonStringToDict(self, json_string):
         return json.loads(json_string)
+    
+    def flagsToDictionary(self, flags):
+        dictionary = dict()
+
+        if flags == None:
+            return dictionary
+        else:
+            for flag in flags:
+                content = flag.replace("--", "")
+                items = content.split(",")
+
+                for item in items:
+                    key_value = item.split("=")
+                    if len(key_value) == 1:
+                        key_value = ["_main_", key_value[0]]
+                    
+                    key_string = key_value[0]
+                    value_string = key_value[1]
+                    value = None
+
+                    if value_string == "enabled":
+                        value = True
+                    elif value_string == "disabled":
+                        value = False
+                    elif value_string.startswith('"') and value_string.endswith('"'):
+                        value = value_string.replace('"', "")
+                    elif "." in value_string:
+                        try:
+                            value = float(value_string)
+                        except:
+                            pass
+                    else:
+                        try:
+                            value = int(value_string)
+                        except:
+                            pass
                 
+                    dictionary[key_string] = value
+        
+            return dictionary

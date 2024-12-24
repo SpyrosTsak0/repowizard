@@ -1,7 +1,7 @@
 RepoWizard | https://github.com/SpyrosTsak0/repowizard
 --------------------
 
-Usage: repowizard.py [command] [subcommand] [arguments]
+Usage: python3 repowizard.py [command] [subcommand] [arguments] [flags]
 
 Available commands:
 
@@ -10,33 +10,35 @@ Available commands:
                       the update command will be executed automatically).
   
   update              Update the status of your repositories. Retrieve your repositories' statuses, then save them locally.
-  
-  auto-delete-head    Manage auto-deletion of head branches across repositories.
-  
+
+  alter               Modify the settings of your repositories. Takes repository names as arguments. 
+                      If no repository names are passed, the alter command will be executed on all repositories.
+                      (The update command is automatically called after a successfull execution of the alter command).
+
                         Subcommands:
-                          > enable   Enable automatic deletion of head branches.
-                          > disable  Disable automatic deletion of head branches.
-  
+                            > auto_delete_head  Toggle the Automatically Delete Head Branches setting or on off. 
+                                                Always accompanied with an "--enabled" " or "--disabled" flag.
+
   help                Display this help page.
 
 Examples:
 
-  To check the status of all repositories:
+  To check the status of your repositories:
       repowizard.py status
   
-  To update repository status:
+  To update the status of your repositories:
       repowizard.py update
   
-  To enable the automatic deletion of head branches for all repositories:
-      repowizard.py auto-delete-head enable
+  To enable the Automatically Delete Head Branches setting on all repositories:
+      repowizard.py alter auto_delete_head --enabled
   
-  To disable the automatic deletion of head branches for all repositories:
-      repowizard.py auto-delete-head disable
+  To disable the Automatically Delete Head Branches setting on all repositories:
+      repowizard.py alter auto_delete_head --disabled
 
-  To enable the automatic deletion of head branches for a specific repository:
-      repowizard.py auto-delete-head enable repository_name
+  To enable the Automatically Delete Head Branches setting on a specific repository:
+      repowizard.py alter auto_delete_head repository_name --enabled
   
-  To disable the automatic deletion of head branches for multiple repositories:
-      repowizard.py auto-delete-head disable repository_name_1 repository_name_2 repository_name_3
+  To disable the Automatically Delete Head Branches setting on multiple repositories:
+      repowizard.py alter auto_delete_head --disabled repository_name_1 repository_name_2 repository_name_3
 
 --------------------
