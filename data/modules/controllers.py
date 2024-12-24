@@ -115,7 +115,7 @@ class CommandController:
             
             if enabled == True or enabled == False:
                 body = {name: enabled}
-                setFeaturecmd(body, method, path)
+                setFeature(body, method, path)
             else:
                 self.commM.printInvalidFlagsAndExit()
                 
