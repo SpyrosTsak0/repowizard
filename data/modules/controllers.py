@@ -1,130 +1,150 @@
 
 class CommandController:
     def __init__(self, base_classes, requests_manager, data_manager, communication_manager, parse_manager):
-        self.base_classes = base_classes
-        self.requests_manager = requests_manager
-        self.data_manager = data_manager
-        self.communication_manager = communication_manager
-        self.parse_manager = parse_manager
+        self.basecl = base_classes
+        self.reqM = requests_manager
+        self.dataM = data_manager
+        self.commM = communication_manager
+        self.parseM = parse_manager
 
-        self.updateStatus = self.communication_manager.handleRequestErrors(self.updateStatus)
-        self.setAutoDeleteHeadStatus = self.communication_manager.handleRequestErrors(self.setAutoDeleteHeadStatus)
+        for attr_name in dir(self):
+            attribute = getattr(self, attr_name)
+
+            if callable(attribute):
+                if attr_name.startswith("cmd_") or attr_name == "executeCommand":
+                    handle_network_exc = True if attr_name.startswith("cmd_net_") else False
+                    setattr(self, attr_name, self.commM.handleCommonExceptions(attribute, attr_name, handle_network_exc))
 
     def executeCommand(self, arguments, flags):
+        arguments_len = len(arguments)
+
         command = arguments[0] if arguments else "help"
-        subcommand = None
-        left_arguments = None
-        arguments_length = len(arguments)
+        subcommand = arguments[1] if arguments_len > 1 else None
+        left_arguments = list(set(arguments) - {command, subcommand}) if arguments_len > 2 else None
 
-        if arguments_length > 1:
-            subcommand = arguments[1]
-        if arguments_length > 2:
-            left_arguments = list(set(arguments) - {command, subcommand})
+        command_handlers = {
+            "status": lambda: self.cmd_status(),
+            "update": lambda: self.cmd_net_update(self.commM.printAndGetAccessToken()),
+            "alter": lambda: self.cmd_net_alter(self.commM.printAndGetAccessToken(), subcommand, flags, left_arguments),
+            "help": lambda: self.cmd_help()
+        }
         
-        if command == "status":
-            self.printStatus()
-
-        elif command == "update":
-            token = self.communication_manager.printAndGetAccessToken()
-            self.updateStatus(token)
-
-        elif command == "auto-delete-head":
-            token = self.communication_manager.printAndGetAccessToken()
-            self.setAutoDeleteHeadStatus(token, subcommand, left_arguments)
-        
-        elif command == "help":
-            self.printHelp()
-
-        else:
-            self.communication_manager.printErrorAndExit("Invalid command. To check the list of available commands, run 'help'")
+        command_handler = command_handlers.get(command)
+        if command_handler:
+            command_handler()
+        else: 
+            self.commM.printErrorAndExit("Invalid command. To check the list of available commands, run 'help'")
     
     #-------------------------------
 
-    def printStatus(self):
-        path = self.data_manager.paths.get("repository_data_file")
+    def cmd_status(self):
 
-        repositories_list = self.data_manager.readJsonFile(path)
-        if repositories_list is None:
-            token = self.communication_manager.printAndGetAccessToken()
-            self.updateStatus(token)
-            repositories_list = self.data_manager.readJsonFile(path)
-
-        def print_nested(key, value, indent = 2):
+        def printNested(key, value, indent = 2):
             prefix = "  " * indent
 
             if isinstance(value, dict):  
-                self.communication_manager.printText(f"{prefix}> {key}:")
+                self.commM.printText(f"{prefix}> {key}:")
                 for sub_key, sub_value in value.items():
-                    print_nested(sub_key, sub_value, indent + 2)
+                    printNested(sub_key, sub_value, indent + 2)
             else:
-                self.communication_manager.printText(f"{prefix}> {key}: {value}")
+                self.commM.printText(f"{prefix}> {key}: {value}")
+        
+        #-------------------------------
+
+        path = self.dataM.paths.get("repository_data_file")
+
+        repositories_list = self.dataM.readJsonFile(path)
+        if repositories_list is None:
+            token = self.commM.printAndGetAccessToken()
+            self.update(token)
+            repositories_list = self.dataM.readJsonFile(path)
         
         for repository_dict in repositories_list:
-            self.communication_manager.printText(f"For repository '{repository_dict.get('name')}' (ID: {str(repository_dict.get('id'))})")
+            self.commM.printText(f"For repository '{repository_dict.get('name')}'")
         
             for key, value in repository_dict.items():
-                if key == "protection_rules" or key == 'id' or key == 'name':
+                if key == 'name':
                     continue
-                print_nested(key, value)
-        
-    def updateStatus(self, token):
-        repository_ids = self.requests_manager.fetchRepositoryIDs(token)
+                printNested(key, value)
+            
+            if len(repositories_list) > repositories_list.index(repository_dict) + 1:
+                self.commM.printText()
+                
+                
+
+    def cmd_net_update(self, token):
+        repository_names = self.reqM.fetchRepositoryNames(token)
+        username = self.reqM.fetchUsername(token)
         
         repositories = list()
 
-        for repository_id in repository_ids:
-            main_response = self.requests_manager.makeRequest("get", f"/repositories/{repository_id}", token) 
+        for repository_name in repository_names:
+            main_response = self.reqM.makeRequest("get", f"/repos/{username}/{repository_name}", token) 
             main_response.raise_for_status()
 
             main_repository_info = main_response.json()
-            username = main_repository_info.get("owner").get("login")
-            repository_name = main_repository_info.get("name")
 
-            protection_response = self.requests_manager.makeRequest("get", f"/repos/{username}/{repository_name}/branches/main/protection", token) 
-
-            repository = self.base_classes.Repository(
-            repository_name, 
+            repository = self.basecl.Repository(
+            main_repository_info.get("name"), 
             main_repository_info.get("id"), 
-            main_repository_info.get("delete_branch_on_merge"),
-            protection_response.json() if str(protection_response.status_code).startswith("2") else None)
-            
+            main_repository_info.get("delete_branch_on_merge"))
+
             repositories.append(repository.__dict__)
         
-        path = self.data_manager.paths.get("repository_data_file")
+        path = self.dataM.paths.get("repository_data_file")
             
-        self.data_manager.writeJsonFile(path, repositories)
-        self.communication_manager.printText("Repository status updated successfully.")
+        self.dataM.writeJsonFile(path, repositories)
+        self.commM.printText("Repository status updated successfully.")
 
-    def setAutoDeleteHeadStatus(self, token, subcommand, repository_names = None):
-        if not subcommand:
-            self.communication_manager.printErrorAndExit(self.communication_manager.SUBCOMMAND_NOT_PASSED_ERROR)
 
-        auto_delete_head = None
+    def cmd_net_alter(self, token, subcommand, flags = None, requested_repo_names = None):
+        repository_names = None
+        username = None
+
+        def setFeature(body, method, path = ""):
+            json_string = self.parseM.dictToJsonString(body)
+
+            for repository_name in repository_names:
+                self.reqM.makeRequest(method, f"/repos/{username}/{repository_name}" + path, token, json_string)
         
-        if subcommand == "enable":
-            auto_delete_head = True
-        elif subcommand == "disable":
-            auto_delete_head = False
+        #-------------------------------
         
-        if auto_delete_head == None:
-            self.communication_manager.printErrorAndExit(self.communication_manager.INVALID_SUBCOMMAND_ERROR)
+        def toggleFeature(name, method, path = ""):
+            flags_dictionary = self.parseM.flagsToDictionary(flags)
+            enabled = flags_dictionary.get("_main_")
+            
+            if enabled == True or enabled == False:
+                body = {name: enabled}
+                setFeaturecmd(body, method, path)
+            else:
+                self.commM.printInvalidFlagsAndExit()
+                
+        #-------------------------------
 
-        repository_ids = self.requests_manager.fetchRepositoryIDs(token, repository_names)
-
-        body_dict = {"delete_branch_on_merge": auto_delete_head}
-        json_body_string = self.parse_manager.dictToJsonString(body_dict)
-
-        for repository_id in repository_ids:
-            response = self.requests_manager.makeRequest("patch", f"/repositories/{repository_id}", token, json_body_string)
+        def cmd_auto_delete_head():
+            toggleFeature("delete_branch_on_merge", "patch")
         
-        self.communication_manager.printText("Automatically Delete Head Branches feature altered successfully.")
-        self.updateStatus(token)
+        #-------------------------------
 
-    def printHelp(self):
-        path = self.data_manager.paths.get("help_file")
+        subcommand_handler = locals().get(f"cmd_{subcommand}")
+        if subcommand_handler:
+
+            repository_names = self.reqM.fetchRepositoryNames(token, requested_repo_names)
+            username = self.reqM.fetchUsername(token)
+
+            subcommand_handler()
+        else:
+            self.commM.printInvalidSubcommandAndExit()
+        
+        self.commM.printText("Repository status altered successfully.")
+        self.cmd_net_update(token)
+        
+
+    def cmd_help(self):
+        path = self.dataM.paths.get("help_file")
         try:
-            self.communication_manager.printText(self.data_manager.readFile(path))
+            self.commM.printText(self.dataM.readFile(path))
         except:
-            self.communication_manager.printErrorAndExit("The Help file could not be found. Please make sure that the 'help.txt' file is located in the 'data' directory.")
+            self.commM.printErrorAndExit("The Help file could not be found. Please make sure the 'help.txt' file is located in the 'data' directory.")
 
 
